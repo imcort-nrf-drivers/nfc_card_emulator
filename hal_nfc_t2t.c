@@ -353,10 +353,10 @@ static void hal_nfc_nfcid1_registers_setup(void)
 //            (sens_res_size << NFCT_SENSRES_NFCIDSIZE_Pos) |
 //            (NFCT_SENSRES_BITFRAMESDD_SDD00100   << NFCT_SENSRES_BITFRAMESDD_Pos);
 		
-      NRF_NFCT->SENSRES = (0x04UL   << NFCT_SENSRES_BITFRAMESDD_Pos);
+      NRF_NFCT->SENSRES = (0x44UL   << NFCT_SENSRES_BITFRAMESDD_Pos);
 		//NRF_NFCT->SELRES = NRF_NFCT->SELRES;
 		
-			NRF_NFCT->SELRES = 28UL << 7;
+			//NRF_NFCT->SELRES = 28UL << 7;
 
 		
 		
