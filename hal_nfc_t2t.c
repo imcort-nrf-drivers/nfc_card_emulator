@@ -120,7 +120,7 @@ NRF_LOG_MODULE_REGISTER();
 #define NFCID1_DEFAULT_LENGHT       NFCID1_DOUBLE_SIZE                          /**< Length of NFCID1 if user does not provide one */
 #define NFCID1_MAX_LENGHT           NFCID1_TRIPLE_SIZE                          /**< Maximum length of NFCID1 */
 
-#define NFC_RX_BUFFER_SIZE          16u                                         /**< NFC Rx data buffer size */
+#define NFC_RX_BUFFER_SIZE          257u                                         /**< NFC Rx data buffer size */
 #define NFC_SLP_REQ_CMD             0x50u                                       /**< NFC SLP_REQ command identifier */
 #define NFC_CRC_SIZE                2u                                          /**< CRC size in bytes */
 

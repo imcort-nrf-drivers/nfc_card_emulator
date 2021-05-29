@@ -92,7 +92,9 @@ static void nfc_received_process(const uint8_t * p_data, size_t data_length)
 				{
 						for (int i=0;i<4;i++)
 						{
-								if( (block_num*4+i > 9) && (block_num < 133) )
+								if(block_num == 133)
+									continue;
+								if( (block_num*4+i > 9)  )
 									ntag215_memory[block_num*4+i] = p_data[i + 2];
 						}
 						hal_send_ack_nack(0xA);
@@ -213,5 +215,7 @@ void card_emu_begin(void)
 		hal_nfc_parameter_set(HAL_NFC_PARAM_ID_NFCID1, uid, 7);
 	
 		memcpy(NTAG215_Signature, NTAG215_UID_Signature + 7, 32);
+	
+		NRF_LOG_HEXDUMP_INFO(NTAG215_Signature, 32);
 
 }
