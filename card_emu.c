@@ -16,6 +16,12 @@
 #define NFC_CMD_PWD_AUTH       0x1B
 #define NFC_CMD_FAST_READ      0x3A
 
+uint8_t current_slot = 0;
+
+bool flash_is_busy = false;
+
+bool slot_changed = false;
+
 static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt)
 {
     if (p_evt->result != NRF_SUCCESS)
@@ -36,12 +42,18 @@ static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt)
         {
             NRF_LOG_INFO("--> Event received: erased %d page from address 0x%x.",
                          p_evt->len, p_evt->addr);
+						flash_is_busy = false;
         } break;
 
         default:
             break;
     }
 }
+#define STORAGE_START_PAGE    64
+#define STORAGE_START_ADDR 		4 * 1024 * STORAGE_START_PAGE
+#define STORAGE_STOP_ADDR 		(STORAGE_START_ADDR + NTAG215_NUM * 4096 - 1)
+
+#define STORAGE_SLOT_TO_ADDR(x)  (STORAGE_START_ADDR + x * 4096)
 
 NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
 {
@@ -52,17 +64,17 @@ NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
      * You must set these manually, even at runtime, before nrf_fstorage_init() is called.
      * The function nrf5_flash_end_addr_get() can be used to retrieve the last address on the
      * last page of flash available to write data. */
-    .start_addr = 0x3e000,
-    .end_addr   = 0x3ffff,
+    .start_addr = STORAGE_START_ADDR,
+    .end_addr   = STORAGE_STOP_ADDR,
 };
 
-static uint8_t ntag215_memory[135 * 4];
+static __attribute__((aligned(4))) uint8_t ntag215_memory[135 * 4 + 32];
 
 static uint8_t NTAG215_Version[8] = {
     0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03
 };
 
-static uint8_t NTAG215_Signature[32];
+static uint8_t * NTAG215_Signature = ntag215_memory + (135 * 4);
 
 static uint8_t NTAG215_PwdOK[2] = {
     0x80, 0x80, 
@@ -103,6 +115,7 @@ static void nfc_received_process(const uint8_t * p_data, size_t data_length)
 					hal_send_ack_nack(0x0);
 					
 				}
+				slot_changed = true;
 				break;
 			case NFC_CMD_GET_VERSION:
 				NRF_LOG_INFO("NFC Get Version");
@@ -198,9 +211,84 @@ void ntag215_memory_format(uint8_t* memory, uint8_t* uid)
 
 }
 
+void ntag215_card_change(uint8_t slot)
+{
+		uint32_t  err_code;
+		
+		if((slot < 0) | (slot > NTAG215_NUM))
+		{
+			
+				NRF_LOG_INFO("Card not changed");
+				return;
+		
+		}
+		
+		//Save current slot to storage
+		if(slot_changed)
+		{
+			
+				flash_is_busy = true;
+				err_code = nrf_fstorage_erase(&fstorage, STORAGE_SLOT_TO_ADDR(current_slot), 1, NULL);
+				APP_ERROR_CHECK(err_code);
+		
+				while(flash_is_busy) __WFE();
+		
+				err_code = nrf_fstorage_write(&fstorage, STORAGE_SLOT_TO_ADDR(current_slot), ntag215_memory, sizeof(ntag215_memory), NULL);
+				APP_ERROR_CHECK(err_code);
+				
+		}
+		
+			
+		//Load slot to memory
+		err_code = nrf_fstorage_read(&fstorage, STORAGE_SLOT_TO_ADDR(slot), ntag215_memory, sizeof(ntag215_memory));
+		APP_ERROR_CHECK(err_code);
+		
+		//Set UID
+		uint8_t uid[7];
+		uid[0] = ntag215_memory[0];
+		uid[1] = ntag215_memory[1];
+		uid[2] = ntag215_memory[2];
+		uid[3] = ntag215_memory[4];
+		uid[4] = ntag215_memory[5];
+		uid[5] = ntag215_memory[6];
+		uid[6] = ntag215_memory[7];
+		hal_nfc_parameter_set(HAL_NFC_PARAM_ID_NFCID1, uid, 7);
+		
+		//Changed to new slot
+		current_slot = slot;
+		slot_changed = false;
+		NRF_LOG_INFO("Card changed to slot %d, UID:", slot);
+		NRF_LOG_HEXDUMP_INFO(uid, 7);
+		
+}
+
+void ntag215_current_slot_init(void)
+{
+		//Get a new UID and format slot
+		uint8_t uid[7];
+	
+		memcpy(uid, NTAG215_UID_Signature + (current_slot * NTAG215_ADDR_OFFSET), 7);
+		ntag215_memory_format(ntag215_memory, uid);
+		hal_nfc_parameter_set(HAL_NFC_PARAM_ID_NFCID1, uid, 7);
+	
+		memcpy(NTAG215_Signature, NTAG215_UID_Signature + (current_slot * NTAG215_ADDR_OFFSET) + 7, 32);
+	
+		slot_changed = true;
+	
+		NRF_LOG_INFO("Slot inited %d, UID:", current_slot);
+		NRF_LOG_HEXDUMP_INFO(uid, 7);
+
+}
+
 void card_emu_begin(void)
 {
 		uint32_t  err_code;
+	
+		/* Set up FSTORAGE */
+		nrf_fstorage_api_t *p_fs_api;
+		p_fs_api = &nrf_fstorage_nvmc;
+		err_code = nrf_fstorage_init(&fstorage, p_fs_api, NULL);
+		APP_ERROR_CHECK(err_code);
 
     /* Set up NFC */
     err_code = hal_nfc_setup(nfc_callback, NULL);
@@ -209,13 +297,6 @@ void card_emu_begin(void)
 		err_code = hal_nfc_start();
 		APP_ERROR_CHECK(err_code);
 	
-		uint8_t uid[7];
-		memcpy(uid, NTAG215_UID_Signature + 0, 7);
-		ntag215_memory_format(ntag215_memory, uid);
-		hal_nfc_parameter_set(HAL_NFC_PARAM_ID_NFCID1, uid, 7);
-	
-		memcpy(NTAG215_Signature, NTAG215_UID_Signature + 7, 32);
-	
-		NRF_LOG_HEXDUMP_INFO(NTAG215_Signature, 32);
+		ntag215_card_change(0);
 
 }
