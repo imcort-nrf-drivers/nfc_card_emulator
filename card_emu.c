@@ -4,10 +4,9 @@
 #include "nrf_log.h"
 #include "nrf_delay.h"
 
-#include "ntag215_keys.h"
+#include "ntag215_uid_signatures.h"
 
-#include "nrf_fstorage.h"
-#include "nrf_fstorage_nvmc.h"
+#include "card_slot.h"
 
 #define NFC_CMD_READ           0x30
 #define NFC_CMD_WRITE          0xA2
@@ -18,55 +17,7 @@
 
 uint8_t current_slot = 0;
 
-bool flash_is_busy = false;
-
 bool slot_changed = false;
-
-static void fstorage_evt_handler(nrf_fstorage_evt_t * p_evt)
-{
-    if (p_evt->result != NRF_SUCCESS)
-    {
-        NRF_LOG_INFO("--> Event received: ERROR while executing an fstorage operation.");
-        return;
-    }
-
-    switch (p_evt->id)
-    {
-        case NRF_FSTORAGE_EVT_WRITE_RESULT:
-        {
-            NRF_LOG_INFO("--> Event received: wrote %d bytes at address 0x%x.",
-                         p_evt->len, p_evt->addr);
-        } break;
-
-        case NRF_FSTORAGE_EVT_ERASE_RESULT:
-        {
-            NRF_LOG_INFO("--> Event received: erased %d page from address 0x%x.",
-                         p_evt->len, p_evt->addr);
-						flash_is_busy = false;
-        } break;
-
-        default:
-            break;
-    }
-}
-#define STORAGE_START_PAGE    64
-#define STORAGE_START_ADDR 		4 * 1024 * STORAGE_START_PAGE
-#define STORAGE_STOP_ADDR 		(STORAGE_START_ADDR + NTAG215_NUM * 4096 - 1)
-
-#define STORAGE_SLOT_TO_ADDR(x)  (STORAGE_START_ADDR + x * 4096)
-
-NRF_FSTORAGE_DEF(nrf_fstorage_t fstorage) =
-{
-    /* Set a handler for fstorage events. */
-    .evt_handler = fstorage_evt_handler,
-
-    /* These below are the boundaries of the flash space assigned to this instance of fstorage.
-     * You must set these manually, even at runtime, before nrf_fstorage_init() is called.
-     * The function nrf5_flash_end_addr_get() can be used to retrieve the last address on the
-     * last page of flash available to write data. */
-    .start_addr = STORAGE_START_ADDR,
-    .end_addr   = STORAGE_STOP_ADDR,
-};
 
 static __attribute__((aligned(4))) uint8_t ntag215_memory[135 * 4 + 32];
 
@@ -227,20 +178,14 @@ void ntag215_card_change(uint8_t slot)
 		if(slot_changed)
 		{
 			
-				flash_is_busy = true;
-				err_code = nrf_fstorage_erase(&fstorage, STORAGE_SLOT_TO_ADDR(current_slot), 1, NULL);
-				APP_ERROR_CHECK(err_code);
-		
-				while(flash_is_busy) __WFE();
-		
-				err_code = nrf_fstorage_write(&fstorage, STORAGE_SLOT_TO_ADDR(current_slot), ntag215_memory, sizeof(ntag215_memory), NULL);
+				err_code = card_slot_write(current_slot, ntag215_memory, sizeof(ntag215_memory));
 				APP_ERROR_CHECK(err_code);
 				
 		}
 		
 			
 		//Load slot to memory
-		err_code = nrf_fstorage_read(&fstorage, STORAGE_SLOT_TO_ADDR(slot), ntag215_memory, sizeof(ntag215_memory));
+		err_code = card_slot_read(slot, ntag215_memory, sizeof(ntag215_memory));
 		APP_ERROR_CHECK(err_code);
 		
 		//Set UID
@@ -259,6 +204,8 @@ void ntag215_card_change(uint8_t slot)
 		slot_changed = false;
 		NRF_LOG_INFO("Card changed to slot %d, UID:", slot);
 		NRF_LOG_HEXDUMP_INFO(uid, 7);
+		
+		NRF_LOG_HEXDUMP_INFO(ntag215_memory + (0x54), 8);
 		
 }
 
@@ -283,13 +230,11 @@ void ntag215_current_slot_init(void)
 void card_emu_begin(void)
 {
 		uint32_t  err_code;
-	
+		
 		/* Set up FSTORAGE */
-		nrf_fstorage_api_t *p_fs_api;
-		p_fs_api = &nrf_fstorage_nvmc;
-		err_code = nrf_fstorage_init(&fstorage, p_fs_api, NULL);
+		err_code = card_slot_begin();
 		APP_ERROR_CHECK(err_code);
-
+		
     /* Set up NFC */
     err_code = hal_nfc_setup(nfc_callback, NULL);
     APP_ERROR_CHECK(err_code);

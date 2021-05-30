@@ -5,3 +5,4 @@ example/nRF52840/blank/arm5_no_packs/*
 !example/nRF52840/blank/arm5_no_packs/nfc_card_emulator.uvoptx
 !example/nRF52840/blank/arm5_no_packs/nfc_card_emulator.uvprojx
 ntag215_keys.h
+ntag215_uid_signatures.h
