@@ -1,4 +1,4 @@
-#include "card_emu.h"
+#include "ntag215_card_emu.h"
 
 #include "hal_nfc_t2t.h"
 #include "nrf_log.h"
